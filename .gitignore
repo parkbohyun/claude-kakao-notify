@@ -1,0 +1,21 @@
+# 비밀 보호
+notify-api.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 백업
+*.bak
+*.bak.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 에디터
+.vscode/
+.idea/
