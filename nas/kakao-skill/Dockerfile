@@ -8,7 +8,7 @@ RUN apk add --no-cache docker-cli && \
 ENV DOCKER_API_VERSION=1.41
 
 WORKDIR /app
-COPY skill_server.py /app/
+COPY skill_server.py onboarding.py /app/
 
 EXPOSE 8000
 CMD ["uvicorn", "skill_server:app", "--host", "0.0.0.0", "--port", "8000"]
