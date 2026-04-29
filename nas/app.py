@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 DATA_DIR = "/data"
 TENANTS_FILE = f"{DATA_DIR}/tenants.json"
+PREFS_FILE = f"{DATA_DIR}/notify_prefs.json"
 LEGACY_CONFIG = f"{DATA_DIR}/kakao_config.json"
 LEGACY_TOKEN = f"{DATA_DIR}/kakao_token.json"
 LEGACY_LOCK = f"{DATA_DIR}/kakao_token.lock"
@@ -49,6 +50,8 @@ app = FastAPI(title="notify-api", version="2.0.0")
 
 _tenants_cache: dict = {"mtime": -1.0, "data": None}
 _tenants_lock = threading.Lock()
+_prefs_cache: dict = {"mtime": -1.0, "data": None}
+_prefs_lock = threading.Lock()
 
 
 def _load_tenants() -> Optional[dict]:
@@ -67,6 +70,41 @@ def _load_tenants() -> Optional[dict]:
         _tenants_cache["mtime"] = mt
         _tenants_cache["data"] = data
         return data
+
+
+def _load_prefs() -> dict:
+    """Return notify_prefs.json content, or empty dict if file is absent."""
+    if not os.path.isfile(PREFS_FILE):
+        return {"prefs": {}}
+    with _prefs_lock:
+        try:
+            mt = os.path.getmtime(PREFS_FILE)
+        except OSError:
+            return {"prefs": {}}
+        if mt == _prefs_cache["mtime"] and _prefs_cache["data"] is not None:
+            return _prefs_cache["data"]
+        try:
+            with open(PREFS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return {"prefs": {}}
+        _prefs_cache["mtime"] = mt
+        _prefs_cache["data"] = data
+        return data
+
+
+def is_notification_enabled(tenant_id: str) -> bool:
+    """Pref-gating rule:
+      - Tenant has no prefs entry → ON (legacy default — unpaired tenant).
+      - Tenant has at least one paired bot user with enabled=true → ON.
+      - All paired entries enabled=false → OFF (skip send).
+    """
+    data = _load_prefs()
+    entries = [p for p in data.get("prefs", {}).values()
+               if p.get("tenant_id") == tenant_id]
+    if not entries:
+        return True
+    return any(p.get("enabled", True) for p in entries)
 
 
 def _hash_key(key: str) -> str:
@@ -258,5 +296,8 @@ def health():
 @app.post("/notify")
 def notify(req: NotifyReq, x_api_key: Optional[str] = Header(default=None)):
     tenant = resolve_tenant(x_api_key)
+    if not is_notification_enabled(tenant["id"]):
+        log.info("[%s] notification skipped — disabled by user prefs", tenant["id"])
+        return {"ok": True, "tenant": tenant["id"], "skipped": "notifications_disabled"}
     send_kakao(tenant, req.message, req.url, req.button or "열기")
     return {"ok": True, "tenant": tenant["id"]}

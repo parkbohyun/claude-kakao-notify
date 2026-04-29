@@ -21,6 +21,9 @@ venv/
 *.bak
 *.bak.*
 
+# 개발 임시 파일
+.tmp/
+
 # OS
 .DS_Store
 Thumbs.db

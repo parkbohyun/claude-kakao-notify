@@ -69,8 +69,15 @@ python3 /tmp/cnk-tools/add_tenant.py add <tenant-id> \
 xQ8vNm-3RzKj5TpQwEfYa7hDcLbR4NsVuXyZMpKwJqB
 ─── 클라이언트 ~/.claude/notify-api.env 의 NOTIFY_API_KEY 로 사용 ─
 
+─── 페어링 코드 (카카오 채널에서 알림 ON/OFF 토글하려면 1회 입력) ──
+  코드: 2HBPSQ
+  만료: 2026-04-29T14:38:59  (10분)
+  사용자 → 카카오 채널에서: /연동 2HBPSQ
+
 힌트: 컨테이너 재시작 불필요 — tenants.json 변경은 즉시 반영됨.
 ```
+
+API 키 + 페어링 코드 모두 사용자에게 안전 채널로 전달. 페어링은 사용자가 카카오 채널에서 토글(ON/OFF) 하고 싶을 때만 1회 필수 — 안 하면 기본 ON 으로 동작 (기존 동작 동일).
 
 ### 5. API 키를 사용자에게 안전하게 전달
 
@@ -100,6 +107,9 @@ $PYAT remove <tenant-id>
 
 # 테넌트 제거 + 데이터까지 삭제
 $PYAT remove <tenant-id> --purge
+
+# 페어링 코드 재발급 (이전 코드가 만료/분실됐을 때)
+$PYAT pair <tenant-id>
 ```
 
 `tenants.json` 변경은 컨테이너 mtime 캐시로 **즉시 반영** (재시작 불필요).

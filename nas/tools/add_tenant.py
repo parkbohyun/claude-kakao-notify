@@ -2,6 +2,9 @@
 
 Subcommands:
   add        — Register a new tenant (generates or accepts an API key).
+               Also issues a 6-char pairing code (10-min TTL) for KakaoTalk
+               channel toggling.
+  pair       — Issue a fresh pairing code for an existing tenant.
   migrate    — Migrate legacy single-tenant data into a tenant entry.
   list       — List registered tenants (no keys, no hashes).
   remove     — Remove a tenant from registry (data dir kept unless --purge).
@@ -25,6 +28,7 @@ Examples (run on NAS host with --data-dir, or inside container with default):
   python add_tenant.py remove userB --purge \\
       --data-dir /volume1/docker/claude-kakao-notify/nas/data
 """
+from __future__ import annotations
 
 import argparse
 import hashlib
@@ -45,6 +49,11 @@ for _s in (sys.stdout, sys.stderr):
             pass
 
 TENANT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+# Code chars exclude visually ambiguous: 0,O,1,I,L
+PAIR_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+PAIR_CODE_LEN = 6
+PAIR_CODE_TTL_SEC = 600  # 10 minutes
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -93,6 +102,66 @@ def fail_if_hash_collides(tenants: dict, key_hash: str) -> None:
         sys.exit("[!] API key hash collides with another tenant — regenerate")
 
 
+def pair_codes_path(data_dir: str) -> str:
+    return os.path.join(data_dir, "pair_codes.json")
+
+
+def load_pair_codes(data_dir: str) -> dict:
+    path = pair_codes_path(data_dir)
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {"codes": {}}
+
+
+def save_pair_codes_atomic(data_dir: str, data: dict) -> None:
+    path = pair_codes_path(data_dir)
+    os.makedirs(data_dir, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, path)
+
+
+def generate_pair_code(data_dir: str, tenant_id: str) -> tuple[str, str]:
+    """Generate a fresh pair code; sweep expired entries; return (code, expires_at)."""
+    data = load_pair_codes(data_dir)
+    codes = data.get("codes", {})
+    now = int(time.time())
+
+    # Drop expired and any codes already pointing at this tenant (one active at a time).
+    codes = {
+        c: meta for c, meta in codes.items()
+        if meta.get("expires_ts", 0) > now and meta.get("tenant_id") != tenant_id
+    }
+
+    for _ in range(20):
+        code = "".join(secrets.choice(PAIR_CODE_CHARS) for _ in range(PAIR_CODE_LEN))
+        if code not in codes:
+            break
+    else:
+        sys.exit("[!] failed to allocate a unique pair code — retry")
+
+    expires_ts = now + PAIR_CODE_TTL_SEC
+    expires_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(expires_ts))
+    codes[code] = {
+        "tenant_id": tenant_id,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "expires_at": expires_at,
+        "expires_ts": expires_ts,
+    }
+    data["codes"] = codes
+    save_pair_codes_atomic(data_dir, data)
+    return code, expires_at
+
+
 # ─── Subcommands ─────────────────────────────────────────────────────────────
 
 def cmd_add(args: argparse.Namespace) -> int:
@@ -130,6 +199,8 @@ def cmd_add(args: argparse.Namespace) -> int:
     })
     save_tenants_atomic(args.data_dir, tenants)
 
+    code, expires_at = generate_pair_code(args.data_dir, args.tenant_id)
+
     print()
     print(f"✓ Tenant '{args.tenant_id}' added.")
     print(f"  config: {cfg_dst}")
@@ -139,7 +210,29 @@ def cmd_add(args: argparse.Namespace) -> int:
     print(api_key)
     print("─── 클라이언트 ~/.claude/notify-api.env 의 NOTIFY_API_KEY 로 사용 ─")
     print()
+    print("─── 페어링 코드 (카카오 채널에서 알림 ON/OFF 토글하려면 1회 입력) ──")
+    print(f"  코드: {code}")
+    print(f"  만료: {expires_at}  (10분)")
+    print("  사용자 → 카카오 채널에서: /연동 " + code)
+    print()
     print("힌트: 컨테이너 재시작 불필요 — tenants.json 변경은 즉시 반영됨.")
+    return 0
+
+
+def cmd_pair(args: argparse.Namespace) -> int:
+    validate_tenant_id(args.tenant_id)
+    tenants = load_tenants(args.data_dir)
+    if not any(t["id"] == args.tenant_id for t in tenants.get("tenants", [])):
+        sys.exit(f"[!] tenant '{args.tenant_id}' not found — register it first with 'add'")
+
+    code, expires_at = generate_pair_code(args.data_dir, args.tenant_id)
+    print()
+    print(f"✓ Pair code issued for tenant '{args.tenant_id}'.")
+    print(f"  코드: {code}")
+    print(f"  만료: {expires_at}  (10분)")
+    print()
+    print("사용자가 카카오 채널에서 입력:")
+    print(f"  /연동 {code}")
     return 0
 
 
@@ -255,6 +348,10 @@ def main() -> int:
     m.add_argument("--api-key",
                    help="Legacy API key (defaults to NOTIFY_API_KEY env)")
     m.set_defaults(func=cmd_migrate)
+
+    pp = sp.add_parser("pair", help="Issue a fresh KakaoTalk pairing code")
+    pp.add_argument("tenant_id")
+    pp.set_defaults(func=cmd_pair)
 
     sp.add_parser("list", help="List registered tenants").set_defaults(func=cmd_list)
 
