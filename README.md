@@ -6,6 +6,11 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%2B%20Synology-blue)](#)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-green)](#)
 
+> **빠른 진입점**
+> - 🧑‍💻 NAS 관리자가 초대한 새 사용자라면 → **[docs/NEW_USER_GUIDE.md](docs/NEW_USER_GUIDE.md)**
+> - 🛠️ NAS를 운영하는 관리자라면 → **[docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md)**
+> - 처음부터 직접 셋업한다면 → 아래 [빠른 시작](#-빠른-시작--3단계) 참고
+
 ---
 
 ## 📌 한 줄 요약
@@ -363,7 +368,10 @@ sudo docker compose down
 
 ```
 claude-kakao-notify/
-├── README.md                  ← 본 문서
+├── README.md                  ← 본 문서 (총괄)
+├── docs/
+│   ├── NEW_USER_GUIDE.md      ← 새 사용자 온보딩 (초대받은 사람용)
+│   └── ADMIN_GUIDE.md         ← NAS 관리자 가이드 (테넌트 관리)
 ├── LICENSE                    ← MIT
 ├── .gitignore
 │
