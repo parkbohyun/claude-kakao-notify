@@ -267,7 +267,7 @@ def health():
 
 # ─── Docmost status endpoints ────────────────────────────────────────────────
 
-@app.api_route(methods=["GET", "POST"], path="/status")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/status")
 async def status(request: Request):
     info = container_info(DOCMOST_NAME)
     if not info["exists"]:
@@ -286,7 +286,7 @@ async def status(request: Request):
     return kakao_response(text)
 
 
-@app.api_route(methods=["GET", "POST"], path="/info")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/info")
 async def info(request: Request):
     items = list_all_containers()
     if not items:
@@ -318,7 +318,7 @@ async def info(request: Request):
     return kakao_response("\n".join(lines))
 
 
-@app.api_route(methods=["GET", "POST"], path="/version")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/version")
 async def version(request: Request):
     info = container_info(DOCMOST_NAME)
     version = fetch_docmost_version() or "(알 수 없음)"
@@ -332,7 +332,7 @@ async def version(request: Request):
     return kakao_response(text)
 
 
-@app.api_route(methods=["GET", "POST"], path="/backup")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/backup")
 async def backup_status(request: Request):
     backup_root = "/data/backups/docmost"
     try:
@@ -360,9 +360,11 @@ async def backup_status(request: Request):
 PAIR_CODE_RE = re.compile(r"\b([A-Z0-9]{6})\b")
 
 
-@app.post("/pair")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/pair")
 async def pair(request: Request):
     """/연동 <CODE> — bot user_id ↔ tenant_id 연결."""
+    if request.method == "GET":
+        return kakao_response("/연동 <코드> 로 페어링합니다.")
     try:
         payload = await request.json()
     except Exception:
@@ -456,8 +458,10 @@ def _set_enabled(payload: dict, enabled: bool) -> dict:
     )
 
 
-@app.post("/notify-on")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/notify-on")
 async def notify_on(request: Request):
+    if request.method == "GET":
+        return kakao_response("/알림 켜기 — 카카오톡 알림을 ON 합니다.")
     try:
         payload = await request.json()
     except Exception:
@@ -465,8 +469,10 @@ async def notify_on(request: Request):
     return _set_enabled(payload, True)
 
 
-@app.post("/notify-off")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/notify-off")
 async def notify_off(request: Request):
+    if request.method == "GET":
+        return kakao_response("/알림 끄기 — 카카오톡 알림을 OFF 합니다.")
     try:
         payload = await request.json()
     except Exception:
@@ -474,8 +480,10 @@ async def notify_off(request: Request):
     return _set_enabled(payload, False)
 
 
-@app.post("/notify-status")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/notify-status")
 async def notify_status(request: Request):
+    if request.method == "GET":
+        return kakao_response("/알림 상태 — 현재 ON/OFF 상태를 조회합니다.")
     try:
         payload = await request.json()
     except Exception:
@@ -523,17 +531,17 @@ HELP_TEXT = (
 )
 
 
-@app.api_route(methods=["GET", "POST"], path="/help")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/help")
 async def help_(request: Request):
     return kakao_response(HELP_TEXT)
 
 
-@app.api_route(methods=["GET", "POST"], path="/guide")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/guide")
 async def guide(request: Request):
     return kakao_response(HELP_TEXT)
 
 
-@app.api_route(methods=["GET", "POST"], path="/welcome")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/welcome")
 async def welcome(request: Request):
     text = (
         "👋 안녕하세요! NAS 알림 봇입니다.\n"
@@ -658,9 +666,11 @@ def send_admin_push(message: str, url: Optional[str] = None,
 
 # ─── Chatbot handlers — registration ─────────────────────────────────────────
 
-@app.post("/register-start")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/register-start")
 async def register_start(request: Request):
     """`/가입 <name>` — 신규 가입 신청 시작. Web URL 반환."""
+    if request.method == "GET":
+        return kakao_response("/가입 <사용자명> 으로 가입 신청을 시작합니다.")
     try:
         payload = await request.json()
     except Exception:
@@ -703,9 +713,11 @@ async def register_start(request: Request):
     )
 
 
-@app.post("/register-status")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/register-status")
 async def register_status(request: Request):
     """`/가입상태 <name>` — 가입 진행/결과 조회. 본인 요청만 응답."""
+    if request.method == "GET":
+        return kakao_response("/가입상태 <사용자명> 으로 진행 상황을 조회합니다.")
     try:
         payload = await request.json()
     except Exception:
@@ -796,9 +808,11 @@ async def register_status(request: Request):
 
 # ─── Chatbot handlers — code re-request ──────────────────────────────────────
 
-@app.post("/code-request")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/code-request")
 async def code_request(request: Request):
     """`/코드요청 <name>` — 페어링 코드 재발급 요청 (관리자 승인 필요)."""
+    if request.method == "GET":
+        return kakao_response("/코드요청 <사용자명> 으로 페어링 코드 재발급을 신청합니다.")
     try:
         payload = await request.json()
     except Exception:
@@ -852,9 +866,11 @@ async def code_request(request: Request):
     )
 
 
-@app.post("/code-check")
+@app.api_route(methods=["GET", "HEAD", "POST"], path="/code-check")
 async def code_check(request: Request):
     """`/코드확인 <name>` — 코드 재발급 결과 확인."""
+    if request.method == "GET":
+        return kakao_response("/코드확인 <사용자명> 으로 코드 발급 여부를 확인합니다.")
     try:
         payload = await request.json()
     except Exception:
