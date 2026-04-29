@@ -26,6 +26,14 @@ import urllib.parse
 import urllib.request
 import webbrowser
 
+# Force UTF-8 on Windows consoles
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        try:
+            _s.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
 REDIRECT_PORT = 8765
 REDIRECT_PATH = "/callback"
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}{REDIRECT_PATH}"

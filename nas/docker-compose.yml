@@ -1,16 +1,16 @@
-# Claude Kakao Notify — NAS notify-api
+# Claude Kakao Notify — NAS notify-api (multi-tenant 2.0)
 #
 # 사용법:
-#   1. cp .env.example .env  &&  편집하여 NOTIFY_API_KEY 등 채우기
-#   2. data 디렉터리에 kakao_config.json + kakao_token.json 배치
-#      (tools/get_initial_token.py 로 생성 가능)
+#   1. cp .env.example .env  &&  편집 (멀티테넌트는 NOTIFY_API_KEY 불필요)
+#   2. data 디렉터리 준비 (멀티테넌트: tools/add_tenant.py 로 테넌트 추가
+#      / 레거시: kakao_config.json + kakao_token.json 직접 배치)
 #   3. docker compose up -d --build
-#   4. curl http://localhost:8002/health   →   {"ok":true,"config":true,"token":true}
+#   4. curl http://localhost:8002/health
 
 services:
   notify-api:
     build: .
-    image: notify-api:1.0
+    image: notify-api:2.0
     container_name: notify-api
     restart: always
 
@@ -22,9 +22,11 @@ services:
       - "${HOST_PORT:-8002}:8000"
 
     volumes:
-      # 카카오 config/token 파일 위치. 기본은 ./data (compose 파일 옆 디렉터리).
-      # 기존에 /volume1/docker/scripts/ 등을 공유 사용 중이면 .env 에서 DATA_DIR 지정.
+      # 카카오 config/token 위치. 기본 ./data (compose 파일 옆 디렉터리).
+      # 기존 /volume1/docker/scripts/ 등을 공유 사용 중이면 .env 에서 DATA_DIR 절대경로 지정.
       - "${DATA_DIR:-./data}:/data"
 
     environment:
-      NOTIFY_API_KEY: "${NOTIFY_API_KEY:?NOTIFY_API_KEY 가 .env 에 정의되지 않았습니다}"
+      # 멀티테넌트 모드 (data/tenants.json 존재) 에서는 무시됨.
+      # 레거시 모드 (data/tenants.json 부재) 에서만 사용.
+      NOTIFY_API_KEY: "${NOTIFY_API_KEY:-}"

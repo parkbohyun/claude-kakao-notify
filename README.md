@@ -236,6 +236,103 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | **NAS 토큰 만료 (401)** | 컨테이너가 자동 refresh 시도 — 영구 실패 시 `get_initial_token.py` 재실행 |
 | **외부에서 안 됨** | 라우터 포트포워딩 / NAS 방화벽 / DDNS 갱신 / `curl your-host:port/health` 확인 |
 | **카톡 본문에 URL 없음** | 카카오 텍스트 템플릿은 `link.web_url` 을 **버튼 액션**용으로만 사용. `/rcd` 는 message 본문에도 URL 인라인 포함시켜 발송함 — 다른 호출자도 본문에 URL을 보이게 하려면 message 문자열에 직접 포함 |
+| **멀티테넌트에서 401 Invalid API key** | `tools/add_tenant.py list` 로 테넌트 등록 여부 확인 → 클라이언트 `.env` 의 `NOTIFY_API_KEY` 가 `add` 시점에 출력된 키와 일치하는지 확인 |
+| **멀티테넌트로 마이그레이션 후 카톡이 다른 사람에게** | 토큰 파일 매핑 오류 가능 — `data/tenants/<id>/kakao_token.json` 이 그 테넌트 본인의 OAuth 결과인지 재확인 |
+
+---
+
+## 👥 멀티테넌트 — 여러 사용자가 한 NAS 공유
+
+> 본인 NAS 하나로 가족/팀원 여러 명이 **각자의 카카오톡으로** 알림을 받게 할 수 있습니다.
+
+### 동작 원리
+
+각 사용자는 자기 카카오 계정으로 OAuth 1회 진행 → 자기 토큰 파일을 NAS 관리자(본인)에게 전달 → 관리자가 `add_tenant.py`로 등록 → 시스템이 **API 키 → 테넌트** 라우팅. 카카오 API는 access_token 소유자에게만 메시지를 보내므로 누가 호출하든 메시지는 그 토큰의 주인에게 도착.
+
+### 디렉터리 레이아웃 (자동 생성)
+
+```
+data/
+├── tenants.json                  ← 키 SHA-256 해시 ↔ 테넌트 ID 매핑
+└── tenants/
+    ├── parkbohyun/
+    │   ├── kakao_config.json
+    │   └── kakao_token.json
+    └── userB/
+        ├── kakao_config.json
+        └── kakao_token.json
+```
+
+API 키는 평문으로 저장되지 않습니다 (SHA-256 해시만 저장).
+
+### 신규 테넌트 추가 절차
+
+#### 추가 사용자 (PC) 측 — 카카오 OAuth 1회
+
+```bash
+# 그 사용자의 카카오 계정으로 진행
+python claude-kakao-notify/nas/tools/get_initial_token.py
+# → 현재 디렉터리에 kakao_config.json + kakao_token.json 생성됨
+# 두 파일을 NAS 관리자에게 안전한 경로로 전달 (이메일/USB/SCP 등)
+```
+
+> 주의: 이 사용자는 자기 카카오 개발자 앱을 만들거나 기존 앱에 팀원으로 추가되어야 함. 추가 사용자는 [카카오 개발자 설정](#-카카오-개발자-설정-1회) 절차를 자기 계정으로 1회 수행.
+
+#### NAS 관리자 측 — 테넌트 등록
+
+```bash
+ssh nas
+cd /volume1/docker/claude-kakao-notify/nas
+
+# 사용자한테 받은 토큰 파일 임시 위치에 두고
+python tools/add_tenant.py add userB \
+    --config /tmp/userB_kakao_config.json \
+    --token  /tmp/userB_kakao_token.json \
+    --data-dir ./data
+
+# → 출력 마지막에 API 키가 한 번 표시됨. 이걸 사용자에게 안전하게 전달.
+```
+
+`tenants.json` 변경은 **즉시 반영** — 컨테이너 재시작 불필요 (mtime 캐시).
+
+#### 추가 사용자 (PC) 측 — 클라이언트 설치
+
+```powershell
+git clone https://github.com/parkbohyun/claude-kakao-notify.git
+cd claude-kakao-notify
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+설치 중 입력:
+- NAS host = 관리자가 알려준 host (예: `mynas.duckdns.org`)
+- NAS port = 관리자가 알려준 port (예: `8002`)
+- API key = `add_tenant.py`가 출력한 그 키
+
+이제 이 사용자의 Claude Code 알림이 **이 사용자 본인의 카톡**으로 도착.
+
+### 관리 명령
+
+```bash
+# 테넌트 목록
+python tools/add_tenant.py list --data-dir ./data
+
+# 테넌트 제거 (데이터 디렉터리는 보존)
+python tools/add_tenant.py remove userB --data-dir ./data
+
+# 테넌트 제거 + 토큰 파일까지 삭제
+python tools/add_tenant.py remove userB --purge --data-dir ./data
+
+# 기존 단일테넌트 → 멀티테넌트 마이그레이션 (기존 NOTIFY_API_KEY 그대로 유지)
+NOTIFY_API_KEY=<현재키> python tools/add_tenant.py migrate parkbohyun --data-dir ./data
+```
+
+### 레거시 모드 (단일테넌트)
+
+`/data/tenants.json`이 **없으면** 자동으로 레거시 모드로 동작:
+- env `NOTIFY_API_KEY` 로 인증
+- `/data/kakao_config.json` + `/data/kakao_token.json` 사용
+
+따라서 v1.0 으로 셋업한 기존 배포는 **변경 없이 그대로 동작**합니다. 멀티테넌트가 필요해질 때 `migrate` 서브커맨드 한 번으로 무중단 전환.
 
 ---
 
@@ -284,12 +381,13 @@ claude-kakao-notify/
 │
 └── nas/                       ← NAS 측 컨테이너 자산
     ├── Dockerfile
-    ├── app.py                 ← FastAPI 게이트웨이 (Kakao API 래퍼)
+    ├── app.py                 ← FastAPI 게이트웨이 + 멀티테넌트 라우팅 (v2.0)
     ├── docker-compose.yml
     ├── .env.example
     ├── kakao_config.json.example
     └── tools/
-        └── get_initial_token.py  ← Kakao OAuth 초기 토큰 발급
+        ├── get_initial_token.py  ← 사용자가 PC에서 Kakao OAuth 1회 진행
+        └── add_tenant.py         ← 관리자가 NAS에서 테넌트 add/list/remove/migrate
 ```
 
 ---

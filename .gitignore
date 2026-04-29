@@ -7,6 +7,7 @@ notify-api.env
 nas/data/
 nas/kakao_config.json
 nas/kakao_token.json
+nas/tenants.json
 !nas/kakao_config.json.example
 
 # Python
