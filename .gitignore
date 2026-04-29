@@ -1,12 +1,20 @@
-# 비밀 보호
+# 비밀 보호 (절대 커밋 금지)
 notify-api.env
 *.env
 !*.env.example
+
+# NAS 측 토큰/설정 (절대 커밋 금지)
+nas/data/
+nas/kakao_config.json
+nas/kakao_token.json
+!nas/kakao_config.json.example
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+venv/
 
 # 백업
 *.bak
@@ -19,3 +27,4 @@ Thumbs.db
 # 에디터
 .vscode/
 .idea/
+*.swp

@@ -1,0 +1,4 @@
+{
+  "client_id": "YOUR_KAKAO_REST_API_KEY",
+  "client_secret": "OPTIONAL_KAKAO_CLIENT_SECRET_OR_REMOVE_THIS_LINE"
+}

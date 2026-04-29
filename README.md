@@ -1,112 +1,319 @@
-# claude-kakao-notify
+# Claude Code → 카카오톡 알림 시스템
 
-Claude Code 세션 이벤트(작업 시작/종료/사용자 입력 필요)와 `/remote-control` URL을
-**카카오톡 '나에게 보내기'**로 자동 발송하는 설치 키트.
+> Claude Code의 작업 이벤트와 원격 접속 URL을 카카오톡 **'나에게 보내기'**로 자동 발송하는 셀프호스팅 키트.
 
-## 구성
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%2B%20Synology-blue)](#)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-green)](#)
 
-- **Hook** (`~/.claude/hooks/notify.py`) — SessionStart/Stop/Notification 시 자동 카톡 발송
-- **MCP** (`~/.claude/mcp/notify-mcp/server.py`) — 모델이 임의 시점에 호출 가능한 `notify` 툴
-- **슬래시 커맨드** (`~/.claude/commands/rcd.md`) — `/rcd <URL>` 한 줄로 RC URL 발송
+---
 
-## 사전 조건
+## 📌 한 줄 요약
 
-- **Windows + Claude Code**
+**Claude Code가 작업을 끝냈거나 사용자 입력을 기다릴 때, 또는 원격 접속 URL이 생겼을 때 카카오톡으로 즉시 받습니다.**
+
+---
+
+## 🎯 무엇을 받을 수 있나
+
+| 시점 | 카톡 메시지 |
+|------|-------------|
+| 새 Claude Code 세션 시작 | 🚀 [Claude Code] 작업 시작 + cwd + session id |
+| 세션 종료 | ✅ [Claude Code] 작업 완료 |
+| 사용자 입력 대기 | ⚠️ [Claude Code] 사용자 입력 필요 + 메시지 |
+| `/rcd <URL>` 또는 `/rcd` | 🔗 원격 접속 URL + 클릭 가능한 버튼 |
+| 모델 판단 임의 알림 | 모델이 `notify` MCP 툴을 호출할 때 |
+
+> **활용 예**: 외근 중에도 PC가 작업 끝났는지, 사용자 결정을 기다리는지 즉시 인지. 원격 접속 URL을 카톡으로 받아 모바일에서 곧바로 이어서 작업.
+
+---
+
+## 🏗️ 동작 흐름
+
+```
+┌─────────────┐        ┌─────────────────┐        ┌──────────────┐
+│ Claude Code │  POST  │  NAS notify-api │  POST  │  Kakao API   │
+│    (PC)     │ ─────► │ (Docker/FastAPI)│ ─────► │              │
+└─────────────┘        └─────────────────┘        └──────────────┘
+       │                       │                          │
+   hook / MCP /          /data 마운트                access_token
+   /rcd 트리거         kakao_config.json             자동 갱신 +
+                       kakao_token.json              flock race 방어
+                              │
+                              ▼
+                       카카오톡 '나에게 보내기'
+```
+
+세 가지 트리거 경로가 모두 같은 컨테이너 엔드포인트로 모입니다:
+- **Hook** (`notify.py`) — Claude Code 세션 라이프사이클 이벤트 자동
+- **MCP 툴** (`notify`) — 모델이 임의 시점에 호출
+- **슬래시 커맨드** (`/rcd`) — 사용자가 RC URL을 한 줄로 발송
+
+---
+
+## 🧱 시스템 요구사항
+
+### NAS / 서버 (1대)
+- Linux + Docker 또는 **Synology DSM 7+** (Container Manager 패키지)
+- 외부 노출 가능한 포트 1개 (기본 `8002`)
+- 24/7 운영 권장
+
+### 카카오 개발자 계정 (1회 설정)
+- https://developers.kakao.com 무료 앱 생성
+- "카카오 로그인" 활성화 + "카카오톡 메시지(talk_message)" 동의 항목 ON
+- 본인 계정으로 OAuth 1회 진행 → access/refresh 토큰 획득
+- 본 리포의 `nas/tools/get_initial_token.py` 가 자동화
+
+### PC (여러 대 가능)
+- **Windows + PowerShell 5.1+**
 - **Python 3.10+** (PATH 등록)
-- **NAS notify-api 컨테이너**가 운영 중이며 외부에서 도달 가능 (DDNS/포트포워딩 또는 LAN/VPN)
-- **API key** 발급되어 있음
+- **Claude Code** 설치
+- NAS 도달 가능한 네트워크 (사내/VPN 또는 인터넷 + 포트포워딩)
 
-## 설치
+---
+
+## 🚀 빠른 시작 — 3단계
+
+> ① 카카오 앱 만들기 → ② NAS 컨테이너 띄우기 → ③ PC 클라이언트 설치 (각 PC)
+
+### ① 카카오 개발자 설정 (1회)
+
+1. https://developers.kakao.com 로그인 → **내 애플리케이션 → 추가하기**
+2. 좌측 메뉴 **앱 키** → **REST API 키** 복사 (이것이 `client_id`)
+3. **카카오 로그인 → 활성화** ON
+4. **카카오 로그인 → Redirect URI** 추가: `http://localhost:8765/callback`
+5. **카카오 로그인 → 동의항목** → **카카오톡 메시지 전송 (talk_message)** ON
+6. (선택) **보안 → Client Secret** 발급 + 활성화 ON
+
+### ② NAS notify-api 컨테이너 (1회)
+
+#### a. 리포 클론 + 작업 디렉터리 진입
+
+NAS 에 SSH 접속 후:
+
+```bash
+cd /volume1/docker
+git clone https://github.com/parkbohyun/claude-kakao-notify.git
+cd claude-kakao-notify/nas
+```
+
+#### b. 환경 파일 작성
+
+```bash
+cp .env.example .env
+
+# 강한 무작위 키 생성해서 NOTIFY_API_KEY 에 채우기
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > /tmp/key.txt
+cat /tmp/key.txt   # ← 이 값을 .env 에 붙여넣고 클라이언트 설치 시에도 동일하게 사용
+nano .env
+```
+
+#### c. 카카오 토큰 초기 발급 (PC 어디서나 1회)
+
+PC 또는 브라우저+Python 가능한 환경에서:
+
+```bash
+python claude-kakao-notify/nas/tools/get_initial_token.py
+```
+
+브라우저가 카카오 로그인 페이지로 자동 열림 → 로그인 + 동의 → 같은 디렉터리에 `kakao_config.json` + `kakao_token.json` 두 파일 생성.
+
+#### d. NAS에 토큰 파일 배치
+
+```bash
+mkdir -p /volume1/docker/claude-kakao-notify/nas/data
+scp kakao_config.json kakao_token.json \
+    you@nas:/volume1/docker/claude-kakao-notify/nas/data/
+ssh you@nas 'chmod 600 /volume1/docker/claude-kakao-notify/nas/data/kakao_*.json'
+```
+
+#### e. 컨테이너 기동
+
+```bash
+cd /volume1/docker/claude-kakao-notify/nas
+sudo docker compose up -d --build
+
+# 헬스체크 (config:true, token:true 가 떠야 정상)
+curl http://localhost:8002/health
+```
+
+#### f. 외부 노출 (외부 PC에서도 사용할 경우)
+
+라우터 관리 페이지에서:
+
+```
+외부 8002  →  NAS LAN IP:8002   (TCP)
+```
+
+DDNS 도메인이 있으면 클라이언트는 `your-ddns.example.com:8002` 사용. 없으면 외부 IP 직접 사용.
+
+> **HTTPS 권장**: 시놀로지 리버스 프록시 + Let's Encrypt 로 `https://notify.your-ddns.example.com` 식의 HTTPS 노출 후, 클라이언트 `.env` 에서 `NOTIFY_API_SCHEME=https` + `NOTIFY_API_PORT=443` 설정.
+
+### ③ PC 클라이언트 설치 (각 PC)
 
 ```powershell
-git clone https://github.com/<YOUR-USER>/claude-kakao-notify.git
+git clone https://github.com/parkbohyun/claude-kakao-notify.git
 cd claude-kakao-notify
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-설치 중 다음을 입력 받음:
+설치 중 입력:
 
-| 항목 | 예시 | 비고 |
-|------|------|------|
-| `NAS host` | `mynas.duckdns.org` 또는 `203.0.113.10` | DDNS 도메인 / 외부 IP / LAN IP |
-| `NAS port` | `8002` | 외부 포트포워딩 포트 (기본 8002) |
-| `API key` | `••••••••` | notify-api 컨테이너 발급 키 |
+| 항목 | 입력 값 |
+|------|---------|
+| **NAS host or IP** | DDNS 도메인 / 외부 IP / LAN IP 중 환경에 맞는 것 |
+| **NAS port** | `8002` (기본) |
+| **API key** | NAS `.env` 의 `NOTIFY_API_KEY` 와 **동일하게** |
 
-> 기존에 설치돼 있던 경우: 기존 값이 기본값으로 채워지며, Enter로 그대로 사용 가능.
-
-## 설치되는 것
-
-- `~/.claude/hooks/notify.py`
-- `~/.claude/mcp/notify-mcp/server.py`
-- `~/.claude/commands/rcd.md`
-- `~/.claude/notify-api.env` (HOST/PORT/KEY)
-- `~/.claude/settings.json` — `hooks.{SessionStart,Stop,Notification}` + `permissions.allow.mcp__notify__notify` 머지
-- `~/.claude.json` — `mcpServers.notify` 머지
-- 위 두 JSON 파일은 수정 직전 `*.bak.<timestamp>`로 자동 백업
-
-`mcp` Python 패키지가 `--user` 모드로 설치됨.
-
-## 사용
-
-### 자동
-Claude Code 세션 시작/종료/사용자 입력 대기 시 자동 카톡 도착.
-
-### 수동 — RC URL 발송
-1. Claude Code 채팅에서 `/remote-control` → URL 출력
-2. 같은 채팅에서 `/rcd` (자동 추출 시도) 또는 `/rcd <URL>` (명시 전달)
-3. 카톡 도착
-
-### 수동 — 임의 메시지
-모델이 `notify` MCP 툴을 호출하면 카톡 발송. 예: "끝나면 카톡으로 알려줘"
-
-## 환경변수 (notify-api.env)
+설치되는 것 (모두 자동):
 
 ```
-NOTIFY_API_HOST=...
-NOTIFY_API_PORT=8002
-NOTIFY_API_KEY=...
-# 선택
-# NOTIFY_API_SCHEME=https
-# NOTIFY_API_PATH=/notify
-# 또는 위 4개 대신:
-# NOTIFY_API_URL=http://host:port/notify
+~/.claude/
+├── hooks/notify.py                  ← 세션 이벤트 hook
+├── mcp/notify-mcp/server.py         ← notify MCP 툴
+├── commands/rcd.md                  ← /rcd 슬래시 커맨드
+├── notify-api.env                   ← host/port/key (이 파일만 비밀)
+├── settings.json                    ← hooks + permissions 머지 (자동 백업)
+└── .. (← ~/.claude.json 의 mcpServers.notify 도 머지, 자동 백업)
 ```
 
-## 디버깅
+`mcp` Python 패키지가 `pip install --user` 로 자동 설치됩니다.
 
-- Hook stdin 덤프: `~/.claude/hook-debug/<event>_<timestamp>.json`
-- 발송 실패 메시지: stderr (Claude Code 자체 로그 또는 hook stdout)
-- 환경변수 미설정 시 hook은 조용히 종료 (Claude Code 동작에 영향 없음)
+---
 
-## 제거
+## 💡 사용 방법
+
+### 🔔 자동 알림
+설치 후 별도 작업 없음. Claude Code 세션 시작/종료/사용자 입력 대기 시 자동 카톡 도착.
+
+### 🔗 `/rcd` 로 원격 접속 URL 발송
+
+```
+1) Claude Code 채팅에서  /remote-control          → URL 표시됨
+2) 같은 채팅에서          /rcd                     ← 자동 추출 시도
+   또는                    /rcd https://claude.ai/code/session_xxx
+3) 모바일 카톡 → URL 클릭 → 핸드폰/태블릿에서 그대로 이어서 작업
+```
+
+### 🤖 임의 시점 알림 (모델 판단)
+
+채팅에서 "**끝나면 카톡으로 알려줘**" 같은 지시를 하면, 모델이 적절한 시점에 `notify` MCP 툴을 호출합니다.
+
+---
+
+## 🔧 환경변수 레퍼런스
+
+### PC `~/.claude/notify-api.env`
+
+| 변수 | 필수 | 설명 |
+|------|:---:|------|
+| `NOTIFY_API_HOST` | ✅ | NAS host (DDNS / 외부 IP / LAN IP) |
+| `NOTIFY_API_PORT` | (기본 `8002`) | NAS 외부 포트 |
+| `NOTIFY_API_KEY`  | ✅ | API 키 (NAS `.env` 와 동일) |
+| `NOTIFY_API_SCHEME` | (기본 `http`) | HTTPS 사용 시 `https` |
+| `NOTIFY_API_PATH` | (기본 `/notify`) | 엔드포인트 경로 |
+| `NOTIFY_API_URL` | (대안) | HOST/PORT 대신 전체 URL 한 줄로 — 하위 호환 |
+
+### NAS `nas/.env`
+
+| 변수 | 필수 | 설명 |
+|------|:---:|------|
+| `NOTIFY_API_KEY` | ✅ | 클라이언트와 동일한 키 |
+| `HOST_PORT` | (기본 `8002`) | 호스트 노출 포트 |
+| `RUN_UID` / `RUN_GID` | (기본 `1026`/`100`) | 컨테이너 실행 uid/gid (호스트 소유권 보존) |
+| `DATA_DIR` | (기본 `./data`) | `/data` 마운트 소스 — 기존 토큰 디렉터리 공유 시 절대경로 |
+
+---
+
+## 🛠️ 트러블슈팅
+
+| 증상 | 점검 |
+|------|------|
+| **카톡이 안 옴** | `~/.claude/hook-debug/SessionStart_*.json` 덤프 존재 여부 → 있으면 PC 측 발송은 시도됨. NAS 쪽: `sudo docker logs notify-api --tail 50` |
+| **`Workspace not trusted`** | 새 cwd 에서 `claude` 1회 인터랙티브 실행 후 trust 다이얼로그 수락 |
+| **`NOTIFY_API_KEY 미설정`** | `~/.claude/notify-api.env` 위치/내용/접근권한 확인 |
+| **`/rcd: URL을 찾지 못함`** | `/rcd <URL>` 인자 명시 전달 |
+| **NAS 토큰 만료 (401)** | 컨테이너가 자동 refresh 시도 — 영구 실패 시 `get_initial_token.py` 재실행 |
+| **외부에서 안 됨** | 라우터 포트포워딩 / NAS 방화벽 / DDNS 갱신 / `curl your-host:port/health` 확인 |
+| **카톡 본문에 URL 없음** | 카카오 텍스트 템플릿은 `link.web_url` 을 **버튼 액션**용으로만 사용. `/rcd` 는 message 본문에도 URL 인라인 포함시켜 발송함 — 다른 호출자도 본문에 URL을 보이게 하려면 message 문자열에 직접 포함 |
+
+---
+
+## ❌ 제거
+
+### PC 측
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
-- settings.json / ~/.claude.json 의 관련 항목만 제거 (다른 항목은 보존, 사전 백업)
-- `notify-api.env`는 보존됨 (비밀 보호 — 수동 삭제 필요)
+- `settings.json` / `~/.claude.json` 의 관련 항목**만** 제거 (다른 항목 보존)
+- 사전 백업 `*.bak.<timestamp>` 자동 생성
+- `notify-api.env` 는 보존됨 (수동 삭제 필요)
 
-## 네트워크 토폴로지 메모
+### NAS 측
 
-```
-[Claude Code (PC)]
-        │ HTTPS/HTTP POST
-        ▼
-[NAS host:port]   ← 외부면 DDNS+포트포워딩, 내부면 LAN IP
-        │
-        ▼
-[notify-api 컨테이너 (FastAPI)]
-        │
-        ▼
-[Kakao /v2/api/talk/memo/default/send]
-        │
-        ▼
-   카카오톡 '나에게 보내기'
+```bash
+cd /volume1/docker/claude-kakao-notify/nas
+sudo docker compose down
+# 토큰 파일까지 제거할 거면:
+# sudo rm -rf data/ .env
 ```
 
-NAS notify-api 컨테이너 셋업은 본 리포 범위 밖. 본 리포는 **클라이언트(=PC) 측 설치**만 다룸.
+---
 
-## 라이선스
+## 📁 리포지토리 구성
 
-내부 도구. 자유롭게 사용/수정.
+```
+claude-kakao-notify/
+├── README.md                  ← 본 문서
+├── LICENSE                    ← MIT
+├── .gitignore
+│
+├── install.ps1                ← PC 클라이언트 설치 스크립트
+├── uninstall.ps1              ← PC 클라이언트 제거 스크립트
+│
+├── files/                     ← PC ~/.claude/ 에 배치되는 파일 원본
+│   ├── hooks/notify.py        ← 세션 이벤트 hook
+│   ├── mcp/notify-mcp/server.py  ← notify MCP 툴 (FastMCP stdio)
+│   ├── commands/rcd.md        ← /rcd 슬래시 커맨드 정의
+│   └── notify-api.env.example
+│
+├── tools/
+│   └── merge_config.py        ← settings.json / ~/.claude.json JSON 머지 헬퍼
+│
+└── nas/                       ← NAS 측 컨테이너 자산
+    ├── Dockerfile
+    ├── app.py                 ← FastAPI 게이트웨이 (Kakao API 래퍼)
+    ├── docker-compose.yml
+    ├── .env.example
+    ├── kakao_config.json.example
+    └── tools/
+        └── get_initial_token.py  ← Kakao OAuth 초기 토큰 발급
+```
+
+---
+
+## 🔐 보안 권고
+
+- **`NOTIFY_API_KEY`** 는 `openssl rand -base64 32` 등으로 생성한 강한 랜덤 문자열 사용.
+- 인터넷 직접 노출 시 **HTTPS** 권장 — 평문 HTTP 노출은 키 도청 위험.
+- **`kakao_token.json`** 은 호스트에서 `chmod 600` 유지. 컨테이너는 `--user 1026:100` 으로 실행되어 atomic replace 시 호스트 소유권 보존.
+- **`.env` / 토큰 파일** 절대 git 커밋 금지 (`.gitignore` 기본 적용).
+- 이 리포의 `notify-api.env.example` 처럼 placeholder 값만 커밋.
+
+---
+
+## 🙋 기여 / 라이선스
+
+**MIT License** — `LICENSE` 파일 참조. 자유롭게 fork/수정/사용하셔도 됩니다.
+
+이슈/PR 환영합니다.
+
+---
+
+<div align="center">
+
+**Made with ☕ by [parkbohyun](https://github.com/parkbohyun)**
+
+</div>
