@@ -686,7 +686,7 @@ async def register_start(request: Request):
             "🆕 가입 시작\n"
             "━━━━━━━━━━━━━━\n"
             "사용자 이름을 함께 입력해주세요.\n"
-            "예: /가입 jypark\n\n"
+            "예: /가입 alice\n\n"
             "이름 규칙: 영문/숫자/_/- 1~64자"
         )
 
@@ -731,7 +731,7 @@ async def register_status(request: Request):
     if not name:
         return kakao_response(
             "조회할 사용자 이름을 입력해주세요.\n"
-            "예: /가입상태 jypark"
+            "예: /가입상태 alice"
         )
 
     data = ob.load_registrations()
@@ -825,7 +825,7 @@ async def code_request(request: Request):
     if not name:
         return kakao_response(
             "사용자 이름을 함께 입력해주세요.\n"
-            "예: /코드요청 jypark"
+            "예: /코드요청 alice"
         )
 
     if not tenant_exists(name):
@@ -883,7 +883,7 @@ async def code_check(request: Request):
     if not name:
         return kakao_response(
             "사용자 이름을 함께 입력해주세요.\n"
-            "예: /코드확인 jypark"
+            "예: /코드확인 alice"
         )
 
     entry = ob.find_latest_code_request(name, user_id)
