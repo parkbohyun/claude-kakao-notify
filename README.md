@@ -53,7 +53,7 @@
 
 ## 🧱 시스템 요구사항
 
-### NAS / 서버 (1대)
+### NAS / 서버 / 로컬 서버
 - Linux + Docker 또는 **Synology DSM 7+** (Container Manager 패키지)
 - 외부 노출 가능한 포트 1개 (기본 `8002`)
 - 24/7 운영 권장
