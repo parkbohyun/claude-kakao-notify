@@ -28,7 +28,7 @@ curl http://localhost:8002/health
 신규 사용자가 카카오 채널에서 `/가입 <name>` 으로 신청하면, OAuth 완료 시점에 **관리자 본인 카톡으로 승인 요청 푸시**가 옵니다:
 
 ```
-🆕 [신규 가입 신청] jypark
+🆕 [신규 가입 신청] alice
 ━━━━━━━━━━━━━━
 OAuth 완료. 승인 페이지로 이동:
 [승인 페이지] 버튼
@@ -73,14 +73,14 @@ docker run -d --name kakao-skill --restart=unless-stopped \
 
 ### 신청자 식별
 
-`bot_user_id` 는 카카오 챗봇이 부여하는 익명 hash 라 누가 신청했는지 직접 보이진 않습니다. **사용자가 입력한 사용자명(`name`)** 을 합의된 식별자로 사용합니다 (예: 사내에서 `jypark` 으로 통용).
+`bot_user_id` 는 카카오 챗봇이 부여하는 익명 hash 라 누가 신청했는지 직접 보이진 않습니다. **사용자가 입력한 사용자명(`name`)** 을 합의된 식별자로 사용합니다 (예: 사내에서 `alice` 으로 통용).
 
 ### 코드 재발급 (추가 디바이스)
 
 기존 사용자가 다른 디바이스에서 토글하고 싶다면:
-- 사용자: `/코드요청 jypark` → 관리자에게 푸시
+- 사용자: `/코드요청 alice` → 관리자에게 푸시
 - 관리자: 승인 페이지에서 [승인]
-- 사용자: `/코드확인 jypark` → 코드 회신 → 그 디바이스에서 `/연동 <코드>`
+- 사용자: `/코드확인 alice` → 코드 회신 → 그 디바이스에서 `/연동 <코드>`
 
 코드 요청은 30분 내 승인 필요, 코드 자체는 10분 만료.
 
@@ -312,10 +312,10 @@ ls -la /volume1/docker/scripts/tenants/*/kakao_*.json
 
 | 블록 이름 | 사용자 발화 (예시) | 스킬 URL (POST) |
 |---|---|---|
-| `가입` | `/가입 jypark`, `가입 jypark`, `/가입` | `${PUBLIC_BASE_URL}/register-start` |
-| `가입상태` | `/가입상태 jypark`, `가입상태 jypark` | `${PUBLIC_BASE_URL}/register-status` |
-| `코드요청` | `/코드요청 jypark`, `코드요청 jypark` | `${PUBLIC_BASE_URL}/code-request` |
-| `코드확인` | `/코드확인 jypark`, `코드확인 jypark` | `${PUBLIC_BASE_URL}/code-check` |
+| `가입` | `/가입 alice`, `가입 alice`, `/가입` | `${PUBLIC_BASE_URL}/register-start` |
+| `가입상태` | `/가입상태 alice`, `가입상태 alice` | `${PUBLIC_BASE_URL}/register-status` |
+| `코드요청` | `/코드요청 alice`, `코드요청 alice` | `${PUBLIC_BASE_URL}/code-request` |
+| `코드확인` | `/코드확인 alice`, `코드확인 alice` | `${PUBLIC_BASE_URL}/code-check` |
 
 각 블록 공통:
 - 응답: **스킬데이터 사용** (서버가 `simpleText` 그대로 반환)
